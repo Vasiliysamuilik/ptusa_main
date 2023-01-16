@@ -114,16 +114,16 @@ if(LINUX)
 elseif(WIN32)
     add_executable(${PROJECT_NAME} ${common_src} ${win_src}
             PAC_control_projects/main_control_prg/main.cpp
-            PAC_control_projects/main_control_prg/version.rc)
+            PAC_control_projects/main_control_prg/version.rc  "PAC/win/w_bus_coupler_io.h")
 
     add_library(libptusa_main ${common_src} ${win_src}
             PAC_control_projects/main_control_prg/main_control_dll_vc/main_control_dll_vc.cpp
             PAC_control_projects/main_control_prg/main_control_dll_vc/dllmain.cpp
-            PAC_control_projects/main_control_prg/version.rc)
+            PAC_control_projects/main_control_prg/version.rc  "PAC/win/w_bus_coupler_io.h")
 
     add_executable(main_test ${common_src} ${win_src} ${test_src}
            test/main_test.cpp
-           PAC_control_projects/main_control_prg/version.rc)
+           PAC_control_projects/main_control_prg/version.rc  "PAC/win/w_bus_coupler_io.h")
 
     set_target_properties (toluapp toluapp_lib liblua PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
     add_custom_command( OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/PAC/common/PAC_dev_lua.cpp
