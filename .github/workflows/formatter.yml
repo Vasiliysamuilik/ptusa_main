@@ -1,20 +1,11 @@
-name: Clang Format
-
-on:
-  push:
-    branches: ["*"]
-  pull_request:
-    branches: ["*"]
-
+on: push
+name: clang-format Code Formatter
 jobs:
-  build:
+  lint:
+    name: clang-format Code Formatter
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-
-    - name: Run Clang Format
-      uses: lukka/clang-format-action@v2
-      with:
-        clang-format-path: /usr/bin/clang-format
-        commit: true
+    - name: Clang Code Formatter
+      uses: antoinealb/clang-format-action@clang9
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
