@@ -53,7 +53,8 @@ static void stopHandler(int sig)
     running = 0;
     }
 
-int main( int argc, const char *argv[] )
+int main( int argc, const char *argv[] 
+)
     {
 #if defined WIN_OS
     setlocale( LC_ALL, "ru_RU.UTF-8" );
