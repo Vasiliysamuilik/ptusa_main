@@ -255,10 +255,13 @@ int tech_object::set_mode( u_int operation_n, int newm )
         white_spaces[ idx ] = 0;
 
         SetColor( GREEN );
+        auto current_op_state = ( *operations_manager )[ operation_n ]->get_state();
+        const auto str = current_op_state < operation::state_idx::STATES_MAX ?
+            operation::en_state_str.at( current_op_state ) : "?";
+
         printf( "%sEND \"%s %d\" set operation №%2u --> %s, res = %d",
-            white_spaces, name, number, operation_n,
-            newm == 0 ? "OFF" : ( newm == 1 ? "ON" : ( newm == 2 ? "PAUSE" :
-            ( newm == 3 ? "STOP" : ( newm == 4 ? "WAIT" : "?" ) ) ) ), res );
+            white_spaces, name, number, operation_n, str, res);        
+
         SetColor( RESET );
 
         switch ( res )
@@ -329,7 +332,7 @@ int tech_object::evaluate()
         auto op = ( *operations_manager )[ idx ];
         op->evaluate();
 
-        const int ERR_STR_SIZE = 80;
+        const unsigned int ERR_STR_SIZE = 80;
 
         if ( G_PAC_INFO()->par[ PAC_info::P_AUTO_PAUSE_OPER_ON_DEV_ERR ] == 0 &&
             op->get_state() == operation::RUN )
@@ -337,9 +340,9 @@ int tech_object::evaluate()
             //Проверка режима на проверку ОС устройств.
             char res_str[ ERR_STR_SIZE ] = "авария устройств ";
 
-            int len = strlen( res_str );
-            int res = op->check_devices_on_run_state( res_str + len,
-                ERR_STR_SIZE - len );
+            const int OFFSET = strlen( res_str );
+            int res = op->check_devices_on_run_state( res_str + OFFSET,
+                ERR_STR_SIZE - OFFSET );
             if ( res && is_check_mode( idx ) == 1 )
                 {
                 set_err_msg( res_str, idx, 0, ERR_TO_FAIL_STATE );
@@ -353,7 +356,6 @@ int tech_object::evaluate()
             //Проверка операции на корректные параметры шагов.
             char res_str[ ERR_STR_SIZE ] = "";
 
-            int len = strlen( res_str );
             int res = op->check_steps_params( res_str, ERR_STR_SIZE );
             if ( res )
                 {
@@ -361,8 +363,17 @@ int tech_object::evaluate()
                 op->pause();
                 lua_on_pause( idx );
                 }
-            }
 
+            //Проверка на превышение максимльного времени шага.
+            res_str[ 0 ] = '\0';
+            res = op->check_max_step_time( res_str, ERR_STR_SIZE );
+            if ( res )
+                {
+                set_err_msg( res_str, idx, 0, ERR_TO_FAIL_STATE );
+                op->pause();
+                lua_on_pause( idx );
+                }
+            }
         }
     return 0;
     }

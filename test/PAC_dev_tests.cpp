@@ -1000,32 +1000,52 @@ TEST( counter_f, get_state )
     counter_f fqt1( "FQT1" );
     EXPECT_EQ( (int) i_counter::STATES::S_WORK, fqt1.get_state() );
 
+    //Малый расход - но счетчик меняет показания - нет ошибки.
+    fqt1.set_cmd( "F", 0, 1 );
+    EXPECT_EQ( (int)i_counter::STATES::S_WORK, fqt1.get_state() );
+    fqt1.set_cmd( "ABS_V", 0, 100 );
+    EXPECT_EQ( (int)i_counter::STATES::S_WORK, fqt1.get_state() );
+
+    //Малый расход - ошибка должна появиться, даже при отсутствии мотора.
+    //Не прошло заданное время.
+    fqt1.set_cmd( "P_DT", 0, 1000 );
+    EXPECT_EQ( (int)i_counter::STATES::S_WORK, fqt1.get_state() );
+    //Прошло заданное время.
+    fqt1.set_cmd( "P_DT", 0, 0 );
+    EXPECT_EQ( (int)i_counter::STATES::S_ERROR, fqt1.get_state() );
+
+    //В состоянии паузы ошибки не должно быть.
+    fqt1.pause();
+    EXPECT_EQ( (int)i_counter::STATES::S_PAUSE, fqt1.get_state() );
+    fqt1.start();
+    EXPECT_EQ( (int)i_counter::STATES::S_WORK, fqt1.get_state() );
+
+
+    //Далее проверяем на ошибки при наличии привязанного мотора.
     motor m1( "M1", device::DST_M_FREQ );
     fqt1.set_property( "M", &m1 );
     EXPECT_EQ( (int) i_counter::STATES::S_WORK, fqt1.get_state() );
 
     //Расход ниже минимального - ошибка не должна появиться.
+    fqt1.set_cmd( "F", 0, 0 );
     m1.on();    
     fqt1.get_state();
-    sleep_ms( 1 );
     EXPECT_EQ( (int) i_counter::STATES::S_WORK, fqt1.get_state() );
 
     //Устанавливаем расход - ошибка должна появиться.
     fqt1.set_cmd( "F", 0, 1 );
     fqt1.get_state();
-    sleep_ms( 1 );
     EXPECT_EQ( (int)i_counter::STATES::S_ERROR, fqt1.get_state() );
 
     fqt1.start();
     //Расход стал ниже минимального - ошибка не должна появиться.
     fqt1.set_cmd( "P_ERR_MIN_FLOW", 0, 2 );
     fqt1.get_state();
-    sleep_ms( 1 );
     EXPECT_EQ( (int)i_counter::STATES::S_WORK, fqt1.get_state() );
 
     fqt1.set_cmd( "P_ERR_MIN_FLOW", 0, 0 );
     fqt1.get_state();
-    fqt1.set_cmd( "ABS_V", 0, 100 );
+    fqt1.set_cmd( "ABS_V", 0, 200 );
     EXPECT_EQ( (int) i_counter::STATES::S_WORK, fqt1.get_state() );
 
     fqt1.pause();
@@ -1078,7 +1098,7 @@ TEST( counter_f, get_error_description )
     {
     counter fqt1( "FQT1" );
     auto res = fqt1.get_error_description();        //Нет ошибок.
-    EXPECT_STREQ( "", res );
+    EXPECT_STREQ( "нет ошибок", res );
 
     fqt1.set_cmd( "ST", 0, -1 );
     res = fqt1.get_error_description();
@@ -1087,14 +1107,23 @@ TEST( counter_f, get_error_description )
     fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_ERROR ) );
     res = fqt1.get_error_description();
     EXPECT_STREQ( "счет импульсов", res );
+    fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_WORK ) );
+    res = fqt1.get_error_description();
+    EXPECT_STREQ( "счет импульсов (rtn)", res );
 
     fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_LOW_ERR ) );
     res = fqt1.get_error_description();
     EXPECT_STREQ( "канал потока (нижний предел)", res );
+    fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_WORK ) );
+    res = fqt1.get_error_description();
+    EXPECT_STREQ( "канал потока (нижний предел, rtn)", res );
 
     fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_HI_ERR ) );
     res = fqt1.get_error_description();
     EXPECT_STREQ( "канал потока (верхний предел)", res );
+    fqt1.set_cmd( "ST", 0, static_cast<int>( i_counter::STATES::S_WORK ) );
+    res = fqt1.get_error_description();
+    EXPECT_STREQ( "канал потока (верхний предел, rtn)", res );
     }
 
 

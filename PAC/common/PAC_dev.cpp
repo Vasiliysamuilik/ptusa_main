@@ -2699,55 +2699,54 @@ base_counter::base_counter( const char* dev_name, DEVICE_SUB_TYPE sub_type,
 //-----------------------------------------------------------------------------
 int base_counter::get_state()
     {
+    bool is_pump_working = false;
     if ( !motors.empty() )
         {
-        char is_pump_working = 0;
-
         for ( u_int i = 0; i < motors.size(); i++ )
             {
             if ( motors[ i ]->get_state() == 1 )
                 {
-                is_pump_working = 1;
-                if ( 0 == start_pump_working_time )
-                    {
-                    start_pump_working_time = get_millisec();
-                    counter_prev_value = get_abs_quantity();
-                    }
+                is_pump_working = true;
                 }
+            }
+        }
+
+    auto min_flow = get_min_flow();
+
+    // Насос не работает (при его наличии) или расход ниже минимального.
+    if ( ( !motors.empty() && !is_pump_working ) || get_flow() <= min_flow )
+        {
+        start_pump_working_time = 0;
+        }
+    // Насос работает (при его наличии) или расход выше минимального.
+    else
+        {
+        if ( state == STATES::S_PAUSE || 0 == start_pump_working_time )
+            {
+            start_pump_working_time = get_millisec();
+            counter_prev_value = get_abs_quantity();
+            return static_cast<int>( state );
             }
 
-        auto min_flow = get_min_flow();
-        if ( 0 == is_pump_working ||        // Насос не работает или 
-            get_flow() <= min_flow )        //расход ниже минимального. 
+        // Работа. 
+        // Проверяем счетчик на ошибку - он должен изменить свои показания.
+        if ( get_abs_quantity() != counter_prev_value )
             {
-            start_pump_working_time = 0;
+            start_pump_working_time = get_millisec();
+            counter_prev_value = get_abs_quantity();
+            state = STATES::S_WORK;
             }
-        else                            // Насос работает. 
+        else
             {
-            if ( state == STATES::S_PAUSE )
+            auto dt = get_pump_dt();
+            if ( get_delta_millisec( start_pump_working_time ) < dt )
                 {
-                start_pump_working_time = get_millisec();
+                return static_cast<int>( state );
                 }
-            else                        // Работа. 
-                {
-                auto dt = get_pump_dt();
-                if ( get_delta_millisec( start_pump_working_time ) > dt )
-                    {
-                    // Проверяем счетчик на ошибку - он должен изменить свои показания. 
-                    if ( get_abs_quantity() == counter_prev_value )
-                        {
-                        state = STATES::S_ERROR;
-                        }
-                    else
-                        {
-                        start_pump_working_time = get_millisec();
-                        counter_prev_value = get_abs_quantity();
-                        state = STATES::S_WORK;
-                        }
-                    }
-                }
+
+            state = STATES::S_ERROR;
             }
-        }// if ( motors.size() > 0 
+        }
 
     return static_cast<int>( state );
     };
@@ -2870,8 +2869,9 @@ void base_counter::start()
         {
         state = STATES::S_WORK;
         last_read_value = get_raw_value();
+        start_pump_working_time = 0;
         }
-    else if ( STATES::S_ERROR == state )
+    else if ( static_cast<int>( state ) < 0 ) // Есть какая-либо ошибка.
         {
         start_pump_working_time = 0;
         state = STATES::S_WORK;
@@ -2929,19 +2929,22 @@ int base_counter::save_device_ex( char* buff )
         buff, MAX_COPY_SIZE, "ABS_V={}, ", get_abs_quantity() ).size;
     }
 //-----------------------------------------------------------------------------
-const char* base_counter::get_error_description() const
+const char* base_counter::get_error_description()
     {
     if ( static_cast<int>( state ) < 0 )
         {
         switch ( state )
             {
             case STATES::S_ERROR:
+                prev_error_state = STATES::S_ERROR;
                 return "счет импульсов";
 
             case STATES::S_LOW_ERR:
+                prev_error_state = STATES::S_LOW_ERR;
                 return "канал потока (нижний предел)";
 
             case STATES::S_HI_ERR:
+                prev_error_state = STATES::S_HI_ERR;
                 return "канал потока (верхний предел)";
 
             default:
@@ -2949,7 +2952,23 @@ const char* base_counter::get_error_description() const
             }
         }
 
-    return "";
+    switch ( prev_error_state )
+        {
+        case STATES::S_ERROR:
+            return "счет импульсов (rtn)";
+
+        case STATES::S_LOW_ERR:
+            return "канал потока (нижний предел, rtn)";
+
+        case STATES::S_HI_ERR:
+            return "канал потока (верхний предел, rtn)";
+
+        default:
+            // Ничего не делаем. Вернем в конце функции строку, что всё хорошо.
+            break;
+        }
+
+    return "нет ошибок";
     }
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -4106,10 +4125,9 @@ int valve_iolink_mix_proof::set_cmd( const char *prop, u_int idx, double val )
     {
     if (G_DEBUG)
         {
-        sprintf( G_LOG->msg,
+        G_LOG->debug(
             "%s\t valve_iolink_mix_proof::set_cmd() - prop = %s, idx = %d, val = %f",
             get_name(), prop, idx, val);
-        G_LOG->write_log(i_log::P_DEBUG);
         }
 
     switch ( prop[ 0 ] )
@@ -4317,10 +4335,9 @@ int valve_iolink_shut_off_sorio::set_cmd( const char* prop, u_int idx, double va
     {
     if ( G_DEBUG )
         {
-        sprintf( G_LOG->msg,
+        G_LOG->debug(
             "%s\t valve_iolink_mix_proof::set_cmd() - prop = %s, idx = %d, val = %f",
             get_name(), prop, idx, val );
-        G_LOG->write_log( i_log::P_DEBUG );
         }
 
     switch ( prop[ 0 ] )
@@ -4507,10 +4524,9 @@ int valve_iolink_shut_off_thinktop::set_cmd( const char* prop, u_int idx, double
     {
     if (G_DEBUG)
         {
-        sprintf( G_LOG->msg,
+        G_LOG->debug(
             "%s\t valve_iolink_mix_proof::set_cmd() - prop = %s, idx = %d, val = %f",
             get_name(), prop, idx, val );
-        G_LOG->write_log( i_log::P_DEBUG );
         }
 
     switch (prop[ 0 ])
@@ -4963,10 +4979,9 @@ inline int analog_valve_iolink::set_cmd( const char* prop, u_int idx, double val
     {
     if ( G_DEBUG )
         {
-        sprintf( G_LOG->msg,
+        G_LOG->debug(
             "%s\t analog_valve_iolink::set_cmd() - prop = %s, idx = %d, val = %f",
             get_name(), prop, idx, val );
-        G_LOG->write_log( i_log::P_DEBUG );
         }
 
     switch ( prop[ 0 ] )
@@ -6118,12 +6133,13 @@ int motor::save_device_ex( char *buff )
         if ( sub_type == device::M_REV_2_ERROR ||
             sub_type == device::DST_M_REV_FREQ_2_ERROR )
             {
-            res = sprintf( buff, "R=%d, ERR=%d, ",
-                get_DO( DO_INDEX_REVERSE ), get_DI( DI_INDEX_ERROR ) );
+            res = static_cast<int>( fmt::format_to_n( buff, MAX_COPY_SIZE, "R={}, ERRT={}, ",
+                get_DO( DO_INDEX_REVERSE ), get_DI( DI_INDEX_ERROR ) ).size );
             }
         else
             {
-            res = sprintf( buff, "R=%d,", get_DO( DO_INDEX_REVERSE ) );
+            res = static_cast<int>( fmt::format_to_n( buff, MAX_COPY_SIZE, "R={}, ",
+                get_DO( DO_INDEX_REVERSE ) ).size );
             }
         }
 #endif //DEBUG_NO_IO_MODULES

@@ -329,7 +329,7 @@ TEST( operation_state, print )
     operation_state->print();
     auto output = testing::internal::GetCapturedStdout();
     std::string str = "RUN\n"
-        "    1     \"Тестовый шаг\" \n"
+        "    1     \"Тестовый шаг\"\n"
         " { }\n";
     EXPECT_EQ( str, output );
 
@@ -342,10 +342,10 @@ TEST( operation_state, print )
     operation_state->print();
     output = testing::internal::GetCapturedStdout();
     str = "RUN\n"
-        "    0     \"Шаг операции\" \n"
+        "    0     \"Шаг операции\"\n"
         "      Включать: { {test_DO} } \n"
         " { }\n"
-        "    1     \"Тестовый шаг\" \n"
+        "    1     \"Тестовый шаг\"\n"
         " { }\n";
     EXPECT_EQ( str, output );
 
@@ -412,7 +412,7 @@ TEST( operation_state, check_devices )
 	auto test_op = ( *operation_mngr )[ 1 ];
 	test_op->add_step( "Тестовый шаг", -1, -1 );
 	auto operation_run_state = ( *test_op )[ operation::RUN ];
-	auto additional_step_in_run = operation_run_state->add_step( "Step_#2", -1, -1 );
+	auto additional_step_in_run = operation_run_state->add_step( "Step_#2" );
 	auto a1 = reinterpret_cast<on_action*>(
 		( *additional_step_in_run )[ step::ACTIONS::A_ON ] );
 
@@ -465,6 +465,120 @@ TEST( operation_state, to_next_step )
 	EXPECT_EQ( 4, test_op->active_step() );
 	}
 
+
+TEST( operation_state, to_step )
+    {
+    lua_State* L = lua_open();
+    ASSERT_EQ( 1, tolua_PAC_dev_open( L ) );
+    G_LUA_MANAGER->set_Lua( L );
+
+
+    tech_object test_tank( "Танк1", 1, 1, "T", 0, 10, 10, 0, 0, 0 );
+    auto test_op = test_tank.get_modes_manager()->add_operation( "Test operation" );
+
+    const auto MAX_TIME_IDX = 1;
+    test_tank.par_float[ MAX_TIME_IDX ] = 1;
+    test_op->add_step( "Init" );
+    test_op->add_step( "Process #1", -1, -1, MAX_TIME_IDX );
+
+    G_DEBUG = 1;
+    //Корректный переход к заданному шагу.
+    testing::internal::CaptureStdout();
+    auto STR_STEP1 =
+R"("Шаг операции"
+ { }
+"Танк1" operation 1 "RUN" to_step() -> 1, step time 0 ms, next step -1
+"Init"
+ { }
+)";
+
+    test_op->start();
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ( STR_STEP1, output );
+    EXPECT_EQ( 1, test_op->active_step() );
+    test_op->evaluate();
+    testing::internal::CaptureStdout();
+    test_op->to_step( 2 );
+    output = testing::internal::GetCapturedStdout();
+    auto STR_STEP2 =
+R"("Танк1" operation 1 "RUN" to_step() -> 2, step time 0 ms, next step -1, max step time 1 s
+"Process #1"
+ { }
+)";
+    EXPECT_EQ( STR_STEP2, output );
+    EXPECT_EQ( 2, test_op->active_step() );        
+    G_DEBUG = 0;
+
+
+    G_LUA_MANAGER->free_Lua();
+    }
+
+TEST( operation, add_step )
+	{
+	tech_object test_tank( "Танк1", 1, 1, "T", 0, 10, 10, 0, 0, 0 );
+	auto test_op = test_tank.get_modes_manager()->add_operation( "Test operation" );
+	
+	// Добавляем шаг для несуществующего состояния операции - должно корректно
+	// отработать.
+	auto res = test_op->add_step( "Init", -1, -1, -1, operation::STATES_MAX );
+	EXPECT_NE( res, nullptr );
+	}
+
+TEST( operation, check_max_step_time )
+	{
+	lua_State* L = lua_open();
+	ASSERT_EQ( 1, tolua_PAC_dev_open( L ) );
+	G_LUA_MANAGER->set_Lua( L );
+
+
+	tech_object test_tank( "Танк1", 1, 1, "T", 1, 0, 10, 0, 0, 0 );
+	const auto MAX_TIME_IDX = 1;
+	test_tank.par_float[ MAX_TIME_IDX ] = 1;
+	auto test_op = test_tank.get_modes_manager()->add_operation( "Test operation" );
+
+	auto res = test_op->add_step( "Тестовый первый шаг", -1, -1, MAX_TIME_IDX );
+	EXPECT_NE( res, nullptr );
+	test_op->start();
+	test_tank.evaluate();
+	EXPECT_EQ( operation::RUN, test_op->get_state() );
+	sleep_ms( 1001 );
+	test_tank.evaluate();
+	EXPECT_EQ( operation::PAUSE, test_op->get_state() );
+
+	// После запуска опять в паузу из-за превышения времени.
+	test_op->start();
+	test_tank.evaluate();
+	EXPECT_EQ( operation::RUN, test_op->get_state() );
+	sleep_ms( 1001 );
+    //Проверка на превышение максимльного времени шага.
+    const unsigned int ERR_STR_SIZE = 80;
+    char err_str[ ERR_STR_SIZE ] = {};
+    test_op->check_max_step_time( err_str, ERR_STR_SIZE );
+    const auto RES_STR = "превышено макс. t (00:00:01) шага 1 'Тестовый пе...'";
+    EXPECT_STREQ( RES_STR, err_str );
+
+	test_tank.evaluate();
+	EXPECT_EQ( operation::PAUSE, test_op->get_state() );
+
+	// После запуска опять в паузу из-за превышения времени второго шага,
+	// который является вспомогательным (выполняется параллельно).
+	test_tank.par_float[ MAX_TIME_IDX ] = 0;        //0 сек для первого шага.
+	test_tank.par_float[ MAX_TIME_IDX + 1 ] = 1;    //1 сек для второго шага.
+	res = test_op->add_step( "Eval #1", -1, -1, MAX_TIME_IDX + 1 );
+	test_op->start();
+	test_op->on_extra_step( 2 );
+	test_tank.evaluate();
+	EXPECT_EQ( operation::RUN, test_op->get_state() );
+	sleep_ms( 1001 );
+    test_op->check_max_step_time( err_str, ERR_STR_SIZE );
+    const auto RES_STR_EX = "превышено макс. t (00:00:01) шага 2 'Eval #1'";
+    EXPECT_STREQ( RES_STR_EX, err_str );
+	test_tank.evaluate();
+	EXPECT_EQ( operation::PAUSE, test_op->get_state() );
+
+
+	G_LUA_MANAGER->free_Lua();
+	}
 
 TEST( operation, operator_at )
 	{
@@ -665,6 +779,7 @@ TEST( operation, evaluate )
 
 	tech_object test_tank( "Танк1", 1, 1, "T", 10, 10, 10, 10, 10, 10 );
 	auto test_op = test_tank.get_modes_manager()->add_operation( "Test operation" );
+    const auto TEST_OP_NUMBER = 1;
 
 	//Корректный переход от выполнения к паузе и опять к выполнению для методов
 	//операции когда в паузе нет шагов.
@@ -684,9 +799,9 @@ TEST( operation, evaluate )
 	test_op->add_step( "Process #1", 3, -1 );
 	test_op->add_step( "Process #2", 2, -1 );
 	
-	test_op->add_step( "Safe stop #1", 2, -1, operation::PAUSE );
-	test_op->add_step( "Safe stop #2", 3, -1, operation::PAUSE );
-	test_op->add_step( "Idle", -1, -1, operation::PAUSE );
+	test_op->add_step( "Safe stop #1", 2, -1, -1, operation::PAUSE );
+	test_op->add_step( "Safe stop #2", 3, -1, -1, operation::PAUSE );
+	test_op->add_step( "Idle", -1, -1, -1, operation::PAUSE );
 	
 	EXPECT_EQ( operation::IDLE, test_op->get_state() );
 	test_op->evaluate();
@@ -770,11 +885,12 @@ TEST( operation, evaluate )
 	DI1 test_DI_one( "test_DI1", device::DEVICE_TYPE::DT_DI,
 		device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
 	if_action_in_idle->add_dev( &test_DI_one );
+    if_action_in_idle->set_int_property( "next_state_n", 0, operation::RUN );
 	
 	auto if_action_in_run = reinterpret_cast<jump_if_action*>
 		( ( *main_step_in_run )[ step::ACTIONS::A_JUMP_IF ] );
 	if_action_in_run->add_dev( &test_DI_one, 0, 1 );
-	if_action_in_run->set_int_property( "next_step_n", 0, 0 );
+	if_action_in_run->set_int_property( "next_state_n", 0, operation::STOP );
 
 	//По умолчанию все сигналы неактивны, операция не должна включиться.
 	test_op->evaluate();
@@ -785,16 +901,17 @@ TEST( operation, evaluate )
 	test_op->evaluate();
 	EXPECT_EQ( operation::RUN, test_op->get_state() );
 
-	//Сигнал не активен, операция должна отключиться.
+	//Сигнал не активен, операция должна перейти в STOP.
 	test_DI_one.off();
 	test_op->evaluate();
-	EXPECT_EQ( operation::IDLE, test_op->get_state() );
+	EXPECT_EQ( operation::STOP, test_op->get_state() );
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
 	DI1 test_DI_two( "test_DI2", device::DEVICE_TYPE::DT_DI,
 		device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
-	auto main_jump_if_action = reinterpret_cast<jump_if_action*>
+	auto main_required_DI_action = reinterpret_cast<required_DI_action*>
 		( ( *main_step_in_run )[ step::ACTIONS::A_REQUIRED_FB ] );
-	main_jump_if_action->add_dev( &test_DI_two );
+    main_required_DI_action->add_dev( &test_DI_two );
 
 	//Сигнал активен, но операция не должна включиться, так как нет требуемого
 	//сигнала.
@@ -836,7 +953,8 @@ TEST( operation, evaluate )
 	//Сигнал не активен, операция должна отключиться.
 	test_DI_one.off();
 	test_op->evaluate();
-	EXPECT_EQ( operation::IDLE, test_op->get_state() );
+	EXPECT_EQ( operation::STOP, test_op->get_state() );
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
 	//Сигнал активен, но операция не должна включиться, так как нет требуемого
 	//сигнала.
@@ -866,7 +984,7 @@ TEST( operation, evaluate )
 	test_op->evaluate();
 	EXPECT_EQ( operation::PAUSE, test_op->get_state() );
 
-	test_op->finalize();
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
 	DO1 test_DO_one( "test_DO1", device::DEVICE_TYPE::DT_DO,
 		device::DEVICE_SUB_TYPE::DST_DO_VIRT );
@@ -881,17 +999,33 @@ TEST( operation, evaluate )
 	test_op->start();
 	EXPECT_EQ( operation::STARTING, test_op->get_state() );
 
-	//При наличии перехода по условию, переходим к "Run".
+	//При отсуствии описания следующего состояние, остаемся в текущем.
 	auto if_action_in_starting = reinterpret_cast<jump_if_action*>
 		( ( *main_step_in_starting )[ step::ACTIONS::A_JUMP_IF ] );
-	if_action_in_starting->add_dev( &test_DI_one );
+	if_action_in_starting->add_dev( &test_DI_one );    
 	test_DI_one.on();
 	test_op->evaluate();
-	EXPECT_EQ( operation::RUN, test_op->get_state() );
+	EXPECT_EQ( operation::STARTING, test_op->get_state() );
+    //При наличии некорректного описания следующего состояние (PAUSE),
+    //остаемся в текущем.
+    if_action_in_starting->set_int_property( "next_state_n", 0, operation::PAUSE );
+    test_op->evaluate();
+    EXPECT_EQ( operation::STARTING, test_op->get_state() );
+    //При наличии описания следующего состояние (STOP), переходим к нему.
+    if_action_in_starting->set_int_property( "next_state_n", 0, operation::STOP );
+    test_op->evaluate();
+    EXPECT_EQ( operation::STOP, test_op->get_state() );
+
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
+    test_op->start();
+    //При наличии описания следующего состояние (RUN), переходим к нему.
+    if_action_in_starting->set_int_property( "next_state_n", 0, operation::RUN );
+    test_op->evaluate();
+    EXPECT_EQ( operation::RUN, test_op->get_state() );
 
 	on_action_in_starting->clear_dev();
 	if_action_in_starting->clear_dev();
-	test_op->finalize();
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
 
     //При наличии описания состояния "Pausing" переходим к нему.
@@ -907,6 +1041,7 @@ TEST( operation, evaluate )
 	//При наличии перехода по условию, переходим к "Pause".
 	auto if_action_in_pausing = reinterpret_cast<jump_if_action*>
 		( ( *main_step_in_pausing )[ step::ACTIONS::A_JUMP_IF ] );
+    if_action_in_pausing->set_int_property( "next_state_n", 0, operation::PAUSE );
 	if_action_in_pausing->add_dev( &test_DI_one );
 	test_DI_one.on();
 	test_op->evaluate();
@@ -914,7 +1049,7 @@ TEST( operation, evaluate )
 
 	on_action_in_pausing->clear_dev();
 	if_action_in_pausing->clear_dev();
-	test_op->finalize();
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
 
 	//При наличии описания состояния "Unpausing" переходим к нему.
@@ -931,6 +1066,7 @@ TEST( operation, evaluate )
 	//При наличии перехода по условию, переходим к "Run".
 	auto if_action_in_unpausing = reinterpret_cast<jump_if_action*>
 		( ( *main_step_in_unpausing )[ step::ACTIONS::A_JUMP_IF ] );
+    if_action_in_unpausing->set_int_property( "next_state_n", 0, operation::RUN );
 	if_action_in_unpausing->add_dev( &test_DI_one );
 	test_DI_one.on();
 	test_op->evaluate();
@@ -952,6 +1088,7 @@ TEST( operation, evaluate )
 	//При наличии перехода по условию, переходим к "Stop".
 	auto if_action_in_stopping = reinterpret_cast<jump_if_action*>
 		( ( *main_step_in_stopping )[ step::ACTIONS::A_JUMP_IF ] );
+    if_action_in_stopping->set_int_property( "next_state_n", 0, operation::STOP );
 	if_action_in_stopping->add_dev( &test_DI_one );
 	test_DI_one.on();
 	test_op->evaluate();
@@ -960,8 +1097,7 @@ TEST( operation, evaluate )
 	on_action_in_unpausing->clear_dev();
 	if_action_in_unpausing->clear_dev();
 
-	test_op->finalize();
-
+    test_tank.set_mode( TEST_OP_NUMBER, operation::IDLE );
 
     G_LUA_MANAGER->free_Lua();
     test_params_manager::removeObject();
@@ -1586,17 +1722,9 @@ TEST( jump_if_action, is_goto_next_step )
 
 	int next_step = 0;
 	auto is_goto_next_step = action->is_jump( next_step );
-	EXPECT_EQ( false, is_goto_next_step );			//Empty if_action_in_idle.
+	EXPECT_EQ( false, is_goto_next_step );  //Empty next state.
 	EXPECT_EQ( -1, next_step );
 
-	DI1 test_DI_one( "test_DI1", device::DEVICE_TYPE::DT_DI,
-		device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
-	action->add_dev( &test_DI_one, 0, 0 );
-	DI1 test_DI_two( "test_DI2", device::DEVICE_TYPE::DT_DI,
-		device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
-	action->add_dev( &test_DI_two, 0, 1 );
-	valve_DO1 test_valve( "V3" );
-	action->add_dev( &test_valve, 1, 0 );
 	const int SET_NEXT_STEP = 2;
 	EXPECT_EQ( 1, action->set_int_property( "no_exist", 0, SET_NEXT_STEP ) );
 	EXPECT_EQ( 0, action->set_int_property( "next_step_n", 0, SET_NEXT_STEP ) );	
@@ -1604,6 +1732,18 @@ TEST( jump_if_action, is_goto_next_step )
 	EXPECT_EQ( -1, action->get_int_property( "no_exist", 0 ) );
 	next_step = action->get_int_property( "next_step_n", 0 );
 	EXPECT_EQ( SET_NEXT_STEP, next_step );
+    is_goto_next_step = action->is_jump( next_step );
+    //Empty device list - unconditional jump.
+    EXPECT_EQ( true, is_goto_next_step );
+
+    DI1 test_DI_one( "test_DI1", device::DEVICE_TYPE::DT_DI,
+        device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
+    action->add_dev( &test_DI_one, 0, 0 );
+    DI1 test_DI_two( "test_DI2", device::DEVICE_TYPE::DT_DI,
+        device::DEVICE_SUB_TYPE::DST_DI_VIRT, 0 );
+    action->add_dev( &test_DI_two, 0, 1 );
+    valve_DO1 test_valve( "V3" );
+    action->add_dev( &test_valve, 1, 0 );
 
 	//По умолчанию все сигналы неактивны, к новому шагу не должно быть
 	//перехода.
