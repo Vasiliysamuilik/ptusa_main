@@ -18,7 +18,7 @@ jobs:
         clang-format -i **/*.cpp **/*.h
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git pull origin main
+        git pull origin master
         git checkout -b style-fixes
         git add .
         git commit -m "Apply clang-format fixes"
