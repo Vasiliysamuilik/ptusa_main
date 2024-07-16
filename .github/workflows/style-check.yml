@@ -13,6 +13,9 @@ jobs:
     - name: Set up clang-format
       run: sudo apt-get install clang-format
 
+    - name: Configure Git to use merge strategy
+      run: git config pull.rebase false
+
     - name: Check code style
       run: |
         clang-format -i **/*.cpp **/*.h
