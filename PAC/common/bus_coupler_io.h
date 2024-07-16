@@ -23,7 +23,7 @@
 /// В общем случае у устройства может быть один или несколько каналов
 /// ввода/вывода (дискретных или аналоговых).
 class io_device
-    {
+{
     public:
         const char* name;
 
@@ -32,7 +32,7 @@ class io_device
         virtual ~io_device();
 
 		enum VENDOR
-			{
+			    {
 			WAGO,
 			PHOENIX,
 			};

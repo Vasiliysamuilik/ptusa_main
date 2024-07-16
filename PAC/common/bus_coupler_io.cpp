@@ -40,8 +40,11 @@
 auto_smart_ptr < io_manager > io_manager::instance;
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
+
+
+
 int io_device::get_DO( u_int index )
-    {
+{
     if ( index < DO_channels.count &&
         DO_channels.char_write_values &&
         DO_channels.char_write_values[ index ] )
@@ -64,7 +67,7 @@ int io_device::get_DO( u_int index )
         }
 
     return 0;
-    }
+}
 //-----------------------------------------------------------------------------
 int io_device::set_DO( u_int index, char value )
     {
