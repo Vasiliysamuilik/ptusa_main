@@ -11,19 +11,28 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Set up clang-format
-      run: sudo apt-get install clang-format
+      run: sudo apt-get install -y clang-format
 
     - name: Check code style
       run: |
-        clang-format -i **/*.cpp **/*.h
+        # Форматирование всех файлов .cpp и .h в соответствии со стилем Google
+        find . -name '*.cpp' -o -name '*.h' | xargs clang-format -i --style=Google
+
+        # Настройка git
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git checkout -b style-fixes
-        git add .
-        git commit -m "Apply clang-format fixes"
-        git push origin style-fixes
+
+        # Проверка, есть ли изменения после форматирования
+        if ! git diff --quiet; then
+          # Создание новой ветки и коммит изменений
+          git checkout -b style-fixes
+          git add .
+          git commit -m "Apply clang-format fixes"
+          git push origin style-fixes
+        fi
 
     - name: Create pull request with style fixes
+      if: github.ref == 'refs/heads/style-fixes'
       uses: peter-evans/create-pull-request@v3
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -34,6 +43,7 @@ jobs:
         labels: 'auto-generated'
 
     - name: Post PR comment
+      if: github.ref == 'refs/heads/style-fixes'
       uses: actions/github-script@v3
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
