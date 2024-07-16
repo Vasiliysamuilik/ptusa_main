@@ -20,9 +20,9 @@
 // Includes
 
 #ifdef __KERNEL__
-	#include <linux/types.h>
+#include <linux/types.h>
 #else
-	#include <stdint.h>
+#include <stdint.h>
 #endif
 
 // ===========================================================================
@@ -42,12 +42,12 @@
 // Makros
 
 #ifndef NOBOOL
-	#ifndef false
-		#define false 0x00
-	#endif
-	#ifndef true
-		#define true 0xFF
-	#endif
+#ifndef false
+#define false 0x00
+#endif
+#ifndef true
+#define true 0xFF
+#endif
 #endif
 
 // ===========================================================================
