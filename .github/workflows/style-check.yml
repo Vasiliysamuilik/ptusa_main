@@ -1,0 +1,46 @@
+name: Style Check
+
+on: [pull_request]
+
+jobs:
+  style-check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up clang-format
+      run: sudo apt-get install clang-format
+
+    - name: Check code style
+      run: |
+        clang-format -i **/*.cpp **/*.h
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git checkout -b style-fixes
+        git add .
+        git commit -m "Apply clang-format fixes"
+        git push origin style-fixes
+
+    - name: Create pull request with style fixes
+      uses: peter-evans/create-pull-request@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        branch: style-fixes
+        title: 'Style fixes'
+        body: 'This PR applies clang-format style fixes according to Google style guide.'
+        base: ${{ github.event.pull_request.head.ref }}
+        labels: 'auto-generated'
+
+    - name: Post PR comment
+      uses: actions/github-script@v3
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          github.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: 'Proposed style fixes are available in a separate pull request. Please review and merge if acceptable.'
+          })
