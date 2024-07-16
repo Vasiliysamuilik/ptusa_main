@@ -31,8 +31,9 @@ class io_device
 
         virtual ~io_device();
 
+
 		enum VENDOR
-			{
+			    {
 			WAGO,
 			PHOENIX,
 			};
